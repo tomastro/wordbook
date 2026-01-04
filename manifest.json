@@ -2,11 +2,14 @@
   "manifest_version": 3,
   "name": "Word Collector",
   "version": "1.0",
-  "permissions": ["contextMenus", "storage", "downloads"],
+  "permissions": ["contextMenus", "storage", "downloads", "identity"],
   "background": {
     "service_worker": "background.js"
   },
   "action": {
     "default_popup": "popup.html"
-  }
+  },
+  "host_permissions": [
+    "https://script.google.com/*"
+  ]
 }

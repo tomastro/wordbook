@@ -48,6 +48,17 @@ document.getElementById("search").addEventListener("input", async (e) => {
   });
 });
 
+document.getElementById("search").addEventListener("keydown", async (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    const q = e.target.value.toLowerCase();
+
+    // Open the tab
+    const win = window.open("https://dictionary.cambridge.org/dictionary/english/" + encodeURIComponent(q), "_blank");
+  }
+});
+
+
 document.getElementById("remove").addEventListener("click", async () => {
   const checked = [...document.querySelectorAll("input[type=checkbox]:checked")];
   if (!checked.length) return;
