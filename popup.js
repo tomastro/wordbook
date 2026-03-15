@@ -9,7 +9,7 @@ async function loadWords() {
 
   for (const w of words.slice().reverse()) {
     const li = document.createElement("li");
-    url = "https://dictionary.cambridge.org/dictionary/english/" + encodeURIComponent(w.word);
+    url = "gemini.html?word=" + encodeURIComponent(w.word);
     li.innerHTML = `
       <label>
         <input type="checkbox" data-word="${w.word}">
@@ -54,7 +54,7 @@ document.getElementById("search").addEventListener("keydown", async (e) => {
     const q = e.target.value.toLowerCase();
 
     // Open the tab
-    const win = window.open("https://dictionary.cambridge.org/dictionary/english/" + encodeURIComponent(q), "_blank");
+    const win = window.open("gemini.html?word=" + encodeURIComponent(q), "_blank");
   }
 });
 
