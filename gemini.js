@@ -7,6 +7,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     const errorEl = document.getElementById('error');
     const resultEl = document.getElementById('result');
     const regenerateBtn = document.getElementById('regenerateBtn');
+    const addWordBtn = document.getElementById('addWordBtn');
     
     if (!word) {
         titleEl.textContent = 'No word provided.';
@@ -28,12 +29,20 @@ document.addEventListener("DOMContentLoaded", async () => {
         resultEl.hidden = true;
         errorEl.hidden = true;
         regenerateBtn.hidden = true;
+        addWordBtn.hidden = true; // wait for actual word
 
         try {
             if (!bypassCache) {
                 const { gemini_cache = {} } = await chrome.storage.local.get("gemini_cache");
                 if (gemini_cache[word]) {
-                    displayResult(gemini_cache[word]);
+                    const c = gemini_cache[word];
+                    if (typeof c === 'string') {
+                        displayResult(word, c, false, word);
+                        await setupAddWordBtn(word);
+                    } else {
+                        displayResult(c.actualWord, c.content, c.isTypo, word);
+                        await setupAddWordBtn(c.actualWord);
+                    }
                     regenerateBtn.hidden = false;
                     return;
                 }
@@ -50,16 +59,26 @@ document.addEventListener("DOMContentLoaded", async () => {
                 throw new Error("GEMINI_API_KEY not found in .env file.");
             }
             
-            // Call Gemini API exactly with gemini-3-flash-preview as requested
+            // Call Gemini API with JSON response format
             const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
+                    generationConfig: {
+                        responseMimeType: "application/json"
+                    },
                     contents: [{
                         parts: [{
-                            text: `Provide the meaning, synonyms, antonyms, and usage examples for the word: "${word}". Please clearly organize the response into sections.`
+                            text: `You are a dictionary. The user is looking up: "${word}".
+Check if the word is misspelled or a typo.
+Respond in JSON format with these exact keys:
+{
+  "isTypo": boolean,
+  "actualWord": "string (the correct spelling, or original if correct)",
+  "content": "string (markdown formatted meaning, synonyms, antonyms, and usage examples)"
+}`
                         }]
                     }]
                 })
@@ -77,12 +96,21 @@ document.addEventListener("DOMContentLoaded", async () => {
                 throw new Error("No response generated.");
             }
 
+            let parsed;
+            try {
+                parsed = JSON.parse(resultText);
+            } catch (e) {
+                // fallback if model didn't obey JSON strictly
+                parsed = { actualWord: word, isTypo: false, content: resultText };
+            }
+
             // Save to cache
             const { gemini_cache = {} } = await chrome.storage.local.get("gemini_cache");
-            gemini_cache[word] = resultText;
+            gemini_cache[word] = parsed;
             await chrome.storage.local.set({ gemini_cache });
 
-            displayResult(resultText);
+            displayResult(parsed.actualWord, parsed.content, parsed.isTypo, word);
+            await setupAddWordBtn(parsed.actualWord);
             regenerateBtn.hidden = false;
             
         } catch (err) {
@@ -93,9 +121,47 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
     }
 
-    function displayResult(text) {
+    async function setupAddWordBtn(actualWord) {
+        addWordBtn.hidden = true; // reset
+        const { words = [] } = await chrome.storage.local.get("words");
+        const isNewWord = !words.some(w => w.word.toLowerCase() === actualWord.toLowerCase());
+        
+        // Remove old listeners by cloning the button
+        const newBtn = addWordBtn.cloneNode(true);
+        addWordBtn.parentNode.replaceChild(newBtn, addWordBtn);
+        
+        if (isNewWord) {
+            newBtn.hidden = false;
+            newBtn.disabled = false;
+            newBtn.textContent = "+ Add to Wordbook";
+            newBtn.addEventListener('click', async () => {
+                newBtn.disabled = true;
+                newBtn.textContent = "Adding...";
+                await chrome.runtime.sendMessage({ 
+                    type: "ADD_WORD", 
+                    word: actualWord,
+                    url: window.location.href,
+                    domain: "Gemini Dic"
+                });
+                newBtn.textContent = "Added!";
+                setTimeout(() => {
+                    newBtn.hidden = true;
+                }, 2000);
+            });
+        }
+    }
+
+    function displayResult(actualWord, text, isTypo, originalWord) {
         loadingEl.hidden = true;
         resultEl.hidden = false;
+        
+        if (isTypo && actualWord.toLowerCase() !== originalWord.toLowerCase()) {
+            titleEl.innerHTML = `${actualWord} <span style="font-size:14px; color:#e74c3c;">(Auto-corrected from "${originalWord}")</span>`;
+            document.title = `${actualWord} (${originalWord}) - Gemini Dictionary`;
+        } else {
+            titleEl.textContent = actualWord;
+            document.title = `${actualWord} - Gemini Dictionary`;
+        }
         
         // Use marked if available, fallback to basic escaping if it failed to load
         if (typeof marked !== 'undefined') {

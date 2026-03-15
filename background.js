@@ -182,3 +182,31 @@ function mergeWords(existing, incoming) {
   return Array.from(map.values());
 }
 
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.type === "ADD_WORD") {
+    (async () => {
+      const entry = {
+        id: crypto.randomUUID(),
+        word: request.word,
+        timestamp: new Date().toISOString(),
+        url: request.url || "",
+        domain: request.domain || "Gemini Search",
+        synced: false
+      };
+      
+      const { words = [] } = await chrome.storage.local.get("words");
+      const merged = mergeWords(words, [entry]);
+      
+      chrome.action.setBadgeText({ text: String(merged.length) });
+      chrome.action.setBadgeBackgroundColor({ color: "#555" });
+      
+      await chrome.storage.local.set({ words: merged });
+      const saved = merged.find(w => w.word === entry.word);
+      await trySync(saved, merged);
+      
+      sendResponse({ success: true });
+    })();
+    return true; // Keep message channel open for async response
+  }
+});
+
