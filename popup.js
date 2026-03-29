@@ -73,3 +73,6 @@ document.getElementById("remove").addEventListener("click", async () => {
 
   await loadWords();
 });
+
+// Focus the search box when the popup opens
+document.getElementById("search").focus();
