@@ -7,7 +7,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     const errorEl = document.getElementById('error');
     const resultEl = document.getElementById('result');
     const regenerateBtn = document.getElementById('regenerateBtn');
-    const addWordBtn = document.getElementById('addWordBtn');
+    let addWordBtn = document.getElementById('addWordBtn');
     
     if (!word) {
         titleEl.textContent = 'No word provided.';
@@ -129,6 +129,7 @@ Respond in JSON format with these exact keys:
         // Remove old listeners by cloning the button
         const newBtn = addWordBtn.cloneNode(true);
         addWordBtn.parentNode.replaceChild(newBtn, addWordBtn);
+        addWordBtn = newBtn;
         
         if (isNewWord) {
             newBtn.hidden = false;
