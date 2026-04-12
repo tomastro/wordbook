@@ -1,5 +1,5 @@
 // URL of the Google Apps Script web app used to store and retrieve word entries
-const GAS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbzwBFYBSNEYKpnMfaibPslA3fiiEGsyQ48f5_TcaUtlHnLLfslCzwuZ9STiRoFAeZyz/exec";
+const GAS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbyoXRahtr8FgY1HuRJiT5vc96URpB7pVAs5nXYV68o/dev";
 
 // When the extension is installed, create a context menu item
 // and pull any existing word entries from the remote spreadsheet.
@@ -29,6 +29,7 @@ chrome.contextMenus.onClicked.addListener(async (info) => {
     timestamp: new Date().toISOString(), // time added/modified
     url: info.pageUrl, // page where word was found
     domain: new URL(info.pageUrl).hostname, // domain of the page
+    translated: "", // translation fetched later from spreadsheet
     synced: false // whether this entry has been pushed to remote
   };
 
@@ -120,13 +121,23 @@ async function pullFromSpreadsheet() {
       continue;
     }
 
-    // If remote is newer than local, merge remote fields into local
     if (new Date(r.timestamp) > new Date(local.timestamp)) {
+      // Remote is newer — merge all remote fields, preserving local id
       localMap.set(r.word, {
         ...local,
         ...r,
-        id: local.id // preserve local id when updating from remote
+        id: local.id
       });
+    } else {
+      // Local is newer — but always pull `translated` from remote,
+      // since it is computed by Google Sheets (GOOGLETRANSLATE) and
+      // is never set locally.
+      if (r.translated) {
+        localMap.set(r.word, {
+          ...local,
+          translated: r.translated
+        });
+      }
     }
   }
 
@@ -191,19 +202,20 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         timestamp: new Date().toISOString(),
         url: request.url || "",
         domain: request.domain || "Gemini Search",
+        translated: request.translated || "",
         synced: false
       };
-      
+
       const { words = [] } = await chrome.storage.local.get("words");
       const merged = mergeWords(words, [entry]);
-      
+
       chrome.action.setBadgeText({ text: String(merged.length) });
       chrome.action.setBadgeBackgroundColor({ color: "#555" });
-      
+
       await chrome.storage.local.set({ words: merged });
       const saved = merged.find(w => w.word === entry.word);
       await trySync(saved, merged);
-      
+
       sendResponse({ success: true });
     })();
     return true; // Keep message channel open for async response

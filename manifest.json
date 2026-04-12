@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Word Collector",
-  "version": "2.0",
+  "version": "2.1",
   "permissions": [
     "contextMenus",
     "storage",

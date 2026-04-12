@@ -14,6 +14,7 @@ async function loadWords() {
       <label>
         <input type="checkbox" data-word="${w.word}">
         <a href="${url}" target="_blank">${w.word}</a>
+        <span>${w.translated}</span>
       </label>
       <small>${new Date(w.timestamp).toLocaleString()}</small>
       <small>
