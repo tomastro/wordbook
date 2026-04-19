@@ -1,5 +1,5 @@
 // URL of the Google Apps Script web app used to store and retrieve word entries
-const GAS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbyoXRahtr8FgY1HuRJiT5vc96URpB7pVAs5nXYV68o/dev";
+const GAS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbwLmzBMYwN7G217-mzY26tfKAPY8FqHG6n5ZVYrxyyaN2P1CR8FTzbumD1QrZtlUInv/exec";
 
 // When the extension is installed, create a context menu item
 // and pull any existing word entries from the remote spreadsheet.
@@ -45,16 +45,20 @@ chrome.contextMenus.onClicked.addListener(async (info) => {
   // Save merged list to local storage and try to sync the new item
   await chrome.storage.local.set({ words: merged });
   const saved = merged.find(w => w.word === entry.word);
-  await trySync(saved, words);
+  await trySync(saved, merged);
 });
 
 // Attempt to send a single entry to the remote Google Apps Script.
-// If successful, mark the entry as synced and update local storage.
+// Uses no-cors mode because GAS does not return CORS headers for POST,
+// which causes some browsers to block the request. In no-cors mode we
+// cannot read the response, so we optimistically mark synced=true.
 async function trySync(entry, words) {
   try {
     entry.timestamp = new Date().toISOString();
     await fetch(GAS_WEBAPP_URL, {
       method: "POST",
+      mode: "no-cors",
+      credentials: "omit",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(entry)
     });
@@ -63,9 +67,9 @@ async function trySync(entry, words) {
     await chrome.storage.local.set({ words });
   } catch (e) {
     // Network or server error — leave synced as false to retry later
-    console.log(e);
+    console.warn("trySync failed:", e);
   }
-};
+}
 // When the browser starts, restore badge count, pull remote data,
 // and attempt to sync any entries that previously failed to sync.
 chrome.runtime.onStartup.addListener(async () => {
@@ -82,16 +86,22 @@ chrome.runtime.onStartup.addListener(async () => {
 // each entry as synced and save the updated list locally.
 async function syncUnsynced() {
   const { words = [] } = await chrome.storage.local.get("words");
+  const unsynced = words.filter(x => !x.synced);
+  if (unsynced.length === 0) return;
 
-  for (const w of words.filter(x => !x.synced)) {
+  for (const w of unsynced) {
     try {
       await fetch(GAS_WEBAPP_URL, {
         method: "POST",
+        mode: "no-cors",
+        credentials: "omit",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(w)
       });
       w.synced = true;
-    } catch { }
+    } catch (e) {
+      console.warn("syncUnsynced: failed for", w.word, e);
+    }
   }
 
   await chrome.storage.local.set({ words });
@@ -101,8 +111,22 @@ async function syncUnsynced() {
 // remote entries with local entries, preferring the more recent
 // timestamp for each word, but preserve the local `id` when present.
 async function pullFromSpreadsheet() {
-  const res = await fetch(GAS_WEBAPP_URL);
-  const remote = await res.json();
+  let remote;
+  try {
+    const res = await fetch(GAS_WEBAPP_URL, { 
+      cache: "no-store",
+      credentials: "omit"
+    });
+    const contentType = res.headers.get("content-type") || "";
+    if (!res.ok || !contentType.includes("application/json")) {
+      console.warn("pullFromSpreadsheet: unexpected response", res.status, contentType);
+      return;
+    }
+    remote = await res.json();
+  } catch (e) {
+    console.warn("pullFromSpreadsheet: fetch failed", e);
+    return;
+  }
 
   const { words = [] } =
     await chrome.storage.local.get("words");
@@ -219,6 +243,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       sendResponse({ success: true });
     })();
     return true; // Keep message channel open for async response
+  }
+
+  if (request.type === "SYNC_NOW") {
+    (async () => {
+      await pullFromSpreadsheet();
+      await syncUnsynced();
+      sendResponse({ success: true });
+    })();
+    return true;
   }
 });
 

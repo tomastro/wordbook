@@ -19,7 +19,8 @@
     "64": "icon64.png"
   },
   "host_permissions": [
-    "https://script.google.com/*"
+    "https://script.google.com/*",
+    "https://script.googleusercontent.com/*"
   ],
   "content_scripts": [
     {
