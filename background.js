@@ -4,7 +4,7 @@ const GAS_PROD_URL = "https://script.google.com/macros/s/AKfycbwLmzBMYwN7G217-mz
 
 // Test Deployment URL (requires YOUR Google account authentication to access)
 // Paste your /dev URL here
-const GAS_TEST_URL = "https://script.google.com/macros/s/YOUR_TEST_DEPLOYMENT_ID/dev";
+const GAS_TEST_URL = "https://script.google.com/macros/s/AKfycbyoXRahtr8FgY1HuRJiT5vc96URpB7pVAs5nXYV68o/dev";
 
 // Change this to GAS_TEST_URL when working on this branch
 const GAS_WEBAPP_URL = GAS_TEST_URL;
