@@ -1,5 +1,17 @@
-// URL of the Google Apps Script web app used to store and retrieve word entries
-const GAS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbwLmzBMYwN7G217-mzY26tfKAPY8FqHG6n5ZVYrxyyaN2P1CR8FTzbumD1QrZtlUInv/exec";
+// == CONFIGURATION ==
+// Production URL (accessible to anyone, avoids multi-login bugs via credentials: omit)
+const GAS_PROD_URL = "https://script.google.com/macros/s/AKfycbwLmzBMYwN7G217-mzY26tfKAPY8FqHG6n5ZVYrxyyaN2P1CR8FTzbumD1QrZtlUInv/exec";
+
+// Test Deployment URL (requires YOUR Google account authentication to access)
+// Paste your /dev URL here
+const GAS_TEST_URL = "https://script.google.com/macros/s/YOUR_TEST_DEPLOYMENT_ID/dev";
+
+// Change this to GAS_TEST_URL when working on this branch
+const GAS_WEBAPP_URL = GAS_TEST_URL;
+
+// Test deployments (/dev) require your Google Login. 
+// Production deployments (/exec) with "Anyone" access need to omit credentials to avoid multi-login crashes.
+const FETCH_CREDENTIALS = GAS_WEBAPP_URL.endsWith('/dev') ? "include" : "omit";
 
 // When the extension is installed, create a context menu item
 // and pull any existing word entries from the remote spreadsheet.
@@ -58,7 +70,7 @@ async function trySync(entry, words) {
     await fetch(GAS_WEBAPP_URL, {
       method: "POST",
       mode: "no-cors",
-      credentials: "omit",
+      credentials: FETCH_CREDENTIALS,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(entry)
     });
@@ -94,7 +106,7 @@ async function syncUnsynced() {
       await fetch(GAS_WEBAPP_URL, {
         method: "POST",
         mode: "no-cors",
-        credentials: "omit",
+        credentials: FETCH_CREDENTIALS,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(w)
       });
@@ -113,9 +125,9 @@ async function syncUnsynced() {
 async function pullFromSpreadsheet() {
   let remote;
   try {
-    const res = await fetch(GAS_WEBAPP_URL, { 
+    const res = await fetch(GAS_WEBAPP_URL, {
       cache: "no-store",
-      credentials: "omit"
+      credentials: FETCH_CREDENTIALS
     });
     const contentType = res.headers.get("content-type") || "";
     if (!res.ok || !contentType.includes("application/json")) {
