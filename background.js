@@ -1,6 +1,6 @@
 // == CONFIGURATION ==
 // Production URL (accessible to anyone, avoids multi-login bugs via credentials: omit)
-const GAS_PROD_URL = "https://script.google.com/macros/s/AKfycbwLmzBMYwN7G217-mzY26tfKAPY8FqHG6n5ZVYrxyyaN2P1CR8FTzbumD1QrZtlUInv/exec";
+const GAS_PROD_URL = "https://script.google.com/macros/s/AKfycbzVRYJuVPTuwdj7ola2_oXwL5cgPaCLF-S90mQTZhmUdWhEFfLxVl6RotMUcatHy9En/exec";
 
 // Test Deployment URL (requires YOUR Google account authentication to access)
 // Paste your /dev URL here
@@ -12,6 +12,62 @@ const GAS_WEBAPP_URL = GAS_TEST_URL;
 // Test deployments (/dev) require your Google Login. 
 // Production deployments (/exec) with "Anyone" access need to omit credentials to avoid multi-login crashes.
 const FETCH_CREDENTIALS = GAS_WEBAPP_URL.endsWith('/dev') ? "include" : "omit";
+
+/* =========================
+   Gemini Translation
+========================= */
+
+// Read GEMINI_API_KEY from the local .env file bundled with the extension.
+// Handles bare format: GEMINI_API_KEY=AIza... (no quotes required)
+async function getApiKey() {
+  try {
+    const envRes = await fetch(chrome.runtime.getURL('.env'));
+    if (!envRes.ok) {
+      console.error("background: .env not accessible, HTTP", envRes.status);
+      return null;
+    }
+    const envText = await envRes.text();
+    // Match key=value with optional surrounding whitespace/quotes on value
+    const match = envText.match(/^GEMINI_API_KEY=([^\r\n]+)/m);
+    return match ? match[1].trim().replace(/^['"]|['"]$/g, '') : null;
+  } catch (e) {
+    console.error("background: failed to read API key from .env:", e);
+    return null;
+  }
+}
+
+// Call the Gemini API to produce a nuanced Japanese translation for an English word.
+// Returns a plain-text string (may contain newlines and bullets), or null on failure.
+async function translateWordWithGemini(word) {
+  const apiKey = await getApiKey();
+  if (!apiKey) return null;
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+  const prompt =
+    `Translate the English word "${word}" to Japanese in 2-3 words maximum.\n` +
+    `Output ONLY the Japanese translation. No explanations, no romanization, no punctuation other than 、 between alternatives.\n` +
+    `Example: "import" → 輸入する、取り込む`;
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }]
+      })
+    });
+    if (!response.ok) {
+      console.warn("translateWordWithGemini: HTTP", response.status);
+      return null;
+    }
+    const data = await response.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    return text ? text.trim() : null;
+  } catch (e) {
+    console.error("translateWordWithGemini: fetch failed:", e);
+    return null;
+  }
+}
 
 // When the extension is installed, create a context menu item
 // and pull any existing word entries from the remote spreadsheet.
@@ -34,6 +90,9 @@ chrome.contextMenus.onClicked.addListener(async (info) => {
   const word = info.selectionText?.trim();
   if (!word) return;
 
+  // Fetch a nuanced Gemini translation before saving
+  const translated = await translateWordWithGemini(word);
+
   // Build a new entry for the selected word
   const entry = {
     id: crypto.randomUUID(), // unique local identifier
@@ -41,7 +100,7 @@ chrome.contextMenus.onClicked.addListener(async (info) => {
     timestamp: new Date().toISOString(), // time added/modified
     url: info.pageUrl, // page where word was found
     domain: new URL(info.pageUrl).hostname, // domain of the page
-    translated: "", // translation fetched later from spreadsheet
+    translated: translated ?? "", // Gemini translation (null → empty string)
     synced: false // whether this entry has been pushed to remote
   };
 
@@ -232,13 +291,19 @@ function mergeWords(existing, incoming) {
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === "ADD_WORD") {
     (async () => {
+      // Use the translation passed from the caller, or fetch a fresh Gemini one
+      let translated = request.translated || null;
+      if (!translated) {
+        translated = await translateWordWithGemini(request.word);
+      }
+
       const entry = {
         id: crypto.randomUUID(),
         word: request.word,
         timestamp: new Date().toISOString(),
         url: request.url || "",
         domain: request.domain || "Gemini Search",
-        translated: request.translated || "",
+        translated: translated ?? "",
         synced: false
       };
 
@@ -261,6 +326,26 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     (async () => {
       await pullFromSpreadsheet();
       await syncUnsynced();
+      sendResponse({ success: true });
+    })();
+    return true;
+  }
+
+  // Re-translate a single word by name.
+  if (request.type === "RETRANSLATE_ONE") {
+    (async () => {
+      const { words = [] } = await chrome.storage.local.get("words");
+      const w = words.find(x => x.word === request.word);
+      if (!w) { sendResponse({ success: false, reason: "not found" }); return; }
+
+      const translated = await translateWordWithGemini(w.word);
+      if (!translated) { sendResponse({ success: false, reason: "api failed" }); return; }
+
+      w.translated = translated;
+      w.synced = false;
+      await chrome.storage.local.set({ words });
+      await trySync(w, words);
+
       sendResponse({ success: true });
     })();
     return true;
