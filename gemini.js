@@ -1,4 +1,5 @@
 document.addEventListener("DOMContentLoaded", async () => {
+    const isExtension = typeof chrome !== "undefined" && chrome.storage && chrome.storage.local;
     const urlParams = new URLSearchParams(window.location.search);
     const word = urlParams.get('word');
     
@@ -24,8 +25,31 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     await fetchAndDisplay(word, false);
     
+    async function getCache() {
+        if (isExtension) {
+            const data = await chrome.storage.local.get("gemini_cache");
+            return data.gemini_cache || {};
+        } else {
+            try {
+                return JSON.parse(localStorage.getItem("gemini_cache") || "{}");
+            } catch (e) {
+                return {};
+            }
+        }
+    }
+
+    async function saveCache(cache) {
+        if (isExtension) {
+            await chrome.storage.local.set({ gemini_cache: cache });
+        } else {
+            localStorage.setItem("gemini_cache", JSON.stringify(cache));
+        }
+    }
+
     async function fetchAndDisplay(word, bypassCache) {
+        document.querySelector('.app-main')?.setAttribute('aria-busy', 'true');
         loadingEl.hidden = false;
+        loadingEl.style.display = 'flex';
         resultEl.hidden = true;
         errorEl.hidden = true;
         regenerateBtn.hidden = true;
@@ -33,7 +57,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
         try {
             if (!bypassCache) {
-                const { gemini_cache = {} } = await chrome.storage.local.get("gemini_cache");
+                const gemini_cache = await getCache();
                 if (gemini_cache[word]) {
                     const c = gemini_cache[word];
                     if (typeof c === 'string') {
@@ -49,12 +73,42 @@ document.addEventListener("DOMContentLoaded", async () => {
             }
 
             // Fetch API key from .env file
-            const envRes = await fetch('.env');
-            if (!envRes.ok) throw new Error("Could not find .env file. Please create it and add GEMINI_API_KEY.");
-            const envText = await envRes.text();
-            const match = envText.match(/GEMINI_API_KEY\s*=\s*(["']?)([^"'\n]+)\1/);
-            const apiKey = match ? match[2] : null;
+            let apiKey = null;
+            try {
+                const envRes = await fetch('.env');
+                if (envRes.ok) {
+                    const envText = await envRes.text();
+                    const match = envText.match(/GEMINI_API_KEY\s*=\s*(["']?)([^"'\n]+)\1/);
+                    apiKey = match ? match[2] : null;
+                }
+            } catch (e) {
+                console.log("Standalone preview mode: .env fetch skipped");
+            }
             
+            if (!apiKey && !isExtension) {
+                // Standalone browser preview mock dictionary response
+                await new Promise(r => setTimeout(r, 800));
+                const mockContent = `## 📖 意味 (Definition)
+**${word}** (名詞 / Noun)
+> 偶然の幸運、思いがけない発見、探してもいなかった素晴らしいものを偶然見つける能力。
+
+### 💡 例文 (Examples)
+1. Finding this quiet coffee shop was pure **serendipity**.
+   *(この静かなカフェを見つけたのは、まったくの偶然の幸運だった。)*
+2. They met by **serendipity** in Paris.
+   *(彼らはパリで偶然出会った。)*
+
+### 🔗 類義語・対義語 (Synonyms & Antonyms)
+- **類義語 (Synonyms)**: *chance, fluke, coincidence, good luck*
+- **対義語 (Antonyms)**: *misfortune, bad luck, design, intention*`;
+
+                const parsed = { actualWord: word, isTypo: false, content: mockContent };
+                displayResult(parsed.actualWord, parsed.content, parsed.isTypo, word);
+                await setupAddWordBtn(parsed.actualWord);
+                regenerateBtn.hidden = false;
+                return;
+            }
+
             if (!apiKey) {
                 throw new Error("GEMINI_API_KEY not found in .env file.");
             }
@@ -105,9 +159,9 @@ Respond in JSON format with these exact keys:
             }
 
             // Save to cache
-            const { gemini_cache = {} } = await chrome.storage.local.get("gemini_cache");
+            const gemini_cache = await getCache();
             gemini_cache[word] = parsed;
-            await chrome.storage.local.set({ gemini_cache });
+            await saveCache(gemini_cache);
 
             displayResult(parsed.actualWord, parsed.content, parsed.isTypo, word);
             await setupAddWordBtn(parsed.actualWord);
@@ -115,15 +169,23 @@ Respond in JSON format with these exact keys:
             
         } catch (err) {
             loadingEl.hidden = true;
+            loadingEl.style.display = 'none';
             errorEl.hidden = false;
-            errorEl.textContent = `Error: ${err.message}`;
+            errorEl.textContent = `辞書情報を取得できませんでした: ${err.message}`;
             regenerateBtn.hidden = false;
+        } finally {
+            document.querySelector('.app-main')?.setAttribute('aria-busy', 'false');
         }
     }
 
     async function setupAddWordBtn(actualWord) {
         addWordBtn.hidden = true; // reset
-        const { words = [] } = await chrome.storage.local.get("words");
+        const isExtension = typeof chrome !== "undefined" && chrome.storage && chrome.storage.local;
+        let words = [];
+        if (isExtension) {
+            const data = await chrome.storage.local.get("words");
+            words = data.words || [];
+        }
         const isNewWord = !words.some(w => w.word.toLowerCase() === actualWord.toLowerCase());
         
         // Remove old listeners by cloning the button
@@ -134,17 +196,20 @@ Respond in JSON format with these exact keys:
         if (isNewWord) {
             newBtn.hidden = false;
             newBtn.disabled = false;
-            newBtn.textContent = "+ Add to Wordbook";
+            newBtn.querySelector("span").textContent = "単語帳に追加";
             newBtn.addEventListener('click', async () => {
                 newBtn.disabled = true;
-                newBtn.textContent = "Adding...";
-                await chrome.runtime.sendMessage({ 
-                    type: "ADD_WORD", 
-                    word: actualWord,
-                    url: window.location.href,
-                    domain: "Gemini Dic"
-                });
-                newBtn.textContent = "Added!";
+                const span = newBtn.querySelector("span");
+                if (span) span.textContent = "追加中…";
+                if (isExtension) {
+                    await chrome.runtime.sendMessage({
+                        type: "ADD_WORD",
+                        word: actualWord,
+                        url: window.location.href,
+                        domain: "Gemini Dic"
+                    });
+                }
+                if (span) span.textContent = "追加しました";
                 setTimeout(() => {
                     newBtn.hidden = true;
                 }, 2000);
@@ -154,10 +219,15 @@ Respond in JSON format with these exact keys:
 
     function displayResult(actualWord, text, isTypo, originalWord) {
         loadingEl.hidden = true;
+        loadingEl.style.display = 'none';
         resultEl.hidden = false;
         
         if (isTypo && actualWord.toLowerCase() !== originalWord.toLowerCase()) {
-            titleEl.innerHTML = `${actualWord} <span style="font-size:14px; color:#e74c3c;">(Auto-corrected from "${originalWord}")</span>`;
+            titleEl.textContent = actualWord;
+            const badge = document.createElement('span');
+            badge.className = 'typo-badge';
+            badge.textContent = `「${originalWord}」から自動修正`;
+            titleEl.append(document.createElement('br'), badge);
             document.title = `${actualWord} (${originalWord}) - Gemini Dictionary`;
         } else {
             titleEl.textContent = actualWord;

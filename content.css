@@ -1,7 +1,20 @@
+/* ================================================================
+   Word Collector — Web Page Highlight Styles
+   ================================================================ */
+
 .wordbook-learned-word {
-  background-color: #ffd54f !important;
-  color: #000 !important;
-  border-radius: 3px !important;
+  background: rgba(47, 111, 159, 0.12) !important;
+  color: inherit !important;
+  border-bottom: 1px solid rgba(47, 111, 159, 0.7) !important;
+  border-radius: 2px !important;
   padding: 0 2px !important;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.1) !important;
+  margin: 0 !important;
+  box-shadow: none !important;
+  transition: background-color 0.15s ease !important;
+}
+
+.wordbook-learned-word:hover {
+  background: rgba(47, 111, 159, 0.2) !important;
+  box-shadow: none !important;
+  cursor: pointer !important;
 }

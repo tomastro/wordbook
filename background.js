@@ -13,6 +13,129 @@ const GAS_WEBAPP_URL = GAS_TEST_URL;
 // Production deployments (/exec) with "Anyone" access need to omit credentials to avoid multi-login crashes.
 const FETCH_CREDENTIALS = GAS_WEBAPP_URL.endsWith('/dev') ? "include" : "omit";
 
+const DELETED_WORDS_KEY = "deletedWordKeys";
+const PENDING_REMOTE_DELETES_KEY = "pendingRemoteDeletes";
+let wordMutationQueue = Promise.resolve();
+
+function runWordMutation(task) {
+  const operation = wordMutationQueue.then(task, task);
+  wordMutationQueue = operation.catch(() => {});
+  return operation;
+}
+
+function normalizeWordKey(word) {
+  return String(word || "").normalize("NFKC").trim().toLocaleLowerCase();
+}
+
+async function getDeletedWordKeys() {
+  const data = await chrome.storage.local.get(DELETED_WORDS_KEY);
+  return new Set(Array.isArray(data[DELETED_WORDS_KEY]) ? data[DELETED_WORDS_KEY] : []);
+}
+
+function clearDeletedWordKey(word) {
+  return runWordMutation(async () => {
+    const deletedKeys = await getDeletedWordKeys();
+    const key = normalizeWordKey(word);
+    if (!deletedKeys.delete(key)) return;
+    await chrome.storage.local.set({ [DELETED_WORDS_KEY]: [...deletedKeys] });
+  });
+}
+
+function saveWords(words) {
+  return runWordMutation(async () => {
+    const deletedKeys = await getDeletedWordKeys();
+    const filtered = words.filter(w => !deletedKeys.has(normalizeWordKey(w.word)));
+    await chrome.storage.local.set({ words: filtered });
+    return filtered;
+  });
+}
+
+function deleteWords(entries) {
+  return runWordMutation(async () => {
+    const targets = Array.isArray(entries) ? entries : [];
+    const ids = new Set(targets.map(entry => entry.id).filter(Boolean));
+    const keys = new Set(targets.map(entry => normalizeWordKey(entry.word)).filter(Boolean));
+    const deletedKeys = await getDeletedWordKeys();
+    keys.forEach(key => deletedKeys.add(key));
+
+    const { words = [] } = await chrome.storage.local.get("words");
+    const filtered = words.filter(word => {
+      if (word.id && ids.has(word.id)) return false;
+      return !keys.has(normalizeWordKey(word.word));
+    });
+
+    const pendingData = await chrome.storage.local.get(PENDING_REMOTE_DELETES_KEY);
+    const existingPending = Array.isArray(pendingData[PENDING_REMOTE_DELETES_KEY])
+      ? pendingData[PENDING_REMOTE_DELETES_KEY]
+      : [];
+    const pendingMap = new Map();
+    for (const entry of [...existingPending, ...targets]) {
+      const identity = entry.id
+        ? `id:${entry.id}`
+        : `word:${normalizeWordKey(entry.word)}`;
+      if (identity !== "word:") {
+        pendingMap.set(identity, { id: entry.id || "", word: entry.word || "" });
+      }
+    }
+
+    await chrome.storage.local.set({
+      words: filtered,
+      [DELETED_WORDS_KEY]: [...deletedKeys],
+      [PENDING_REMOTE_DELETES_KEY]: [...pendingMap.values()]
+    });
+    await chrome.action.setBadgeText({ text: filtered.length ? String(filtered.length) : "" });
+    return words.length - filtered.length;
+  });
+}
+
+async function syncPendingDeletes() {
+  const data = await chrome.storage.local.get(PENDING_REMOTE_DELETES_KEY);
+  const pending = Array.isArray(data[PENDING_REMOTE_DELETES_KEY])
+    ? data[PENDING_REMOTE_DELETES_KEY]
+    : [];
+  if (pending.length === 0) return true;
+
+  try {
+    await fetch(GAS_WEBAPP_URL, {
+      method: "POST",
+      credentials: FETCH_CREDENTIALS,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "delete",
+        entries: pending
+      })
+    }).then(async response => {
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const result = await response.json().catch(() => null);
+      if (result?.ok === false || result?.success === false) {
+        throw new Error(result.error || "remote deletion failed");
+      }
+    });
+    const sentIdentities = new Set(pending.map(entry => entry.id
+      ? `id:${entry.id}`
+      : `word:${normalizeWordKey(entry.word)}`));
+    await runWordMutation(async () => {
+      const latestData = await chrome.storage.local.get(PENDING_REMOTE_DELETES_KEY);
+      const latest = Array.isArray(latestData[PENDING_REMOTE_DELETES_KEY])
+        ? latestData[PENDING_REMOTE_DELETES_KEY]
+        : [];
+      const remaining = latest.filter(entry => {
+        const identity = entry.id
+          ? `id:${entry.id}`
+          : `word:${normalizeWordKey(entry.word)}`;
+        return !sentIdentities.has(identity);
+      });
+      await chrome.storage.local.set({ [PENDING_REMOTE_DELETES_KEY]: remaining });
+    });
+    return true;
+  } catch (error) {
+    console.warn("syncPendingDeletes: failed", error);
+    return false;
+  }
+}
+
 /* =========================
    Gemini Translation
 ========================= */
@@ -77,6 +200,7 @@ chrome.runtime.onInstalled.addListener(async () => {
     title: "単語帳に追加",
     contexts: ["selection"]
   });
+  await syncPendingDeletes();
   await pullFromSpreadsheet();
 });
 
@@ -104,6 +228,8 @@ chrome.contextMenus.onClicked.addListener(async (info) => {
     synced: false // whether this entry has been pushed to remote
   };
 
+  await clearDeletedWordKey(entry.word);
+
   // Load existing words from local storage and merge with new entry
   const { words = [] } =
     await chrome.storage.local.get("words");
@@ -114,9 +240,9 @@ chrome.contextMenus.onClicked.addListener(async (info) => {
   chrome.action.setBadgeBackgroundColor({ color: "#555" });
 
   // Save merged list to local storage and try to sync the new item
-  await chrome.storage.local.set({ words: merged });
-  const saved = merged.find(w => w.word === entry.word);
-  await trySync(saved, merged);
+  const savedWords = await saveWords(merged);
+  const saved = savedWords.find(w => w.word === entry.word);
+  await trySync(saved, savedWords);
 });
 
 // Attempt to send a single entry to the remote Google Apps Script.
@@ -124,6 +250,7 @@ chrome.contextMenus.onClicked.addListener(async (info) => {
 // which causes some browsers to block the request. In no-cors mode we
 // cannot read the response, so we optimistically mark synced=true.
 async function trySync(entry, words) {
+  if (!entry) return;
   try {
     entry.timestamp = new Date().toISOString();
     await fetch(GAS_WEBAPP_URL, {
@@ -135,7 +262,7 @@ async function trySync(entry, words) {
     });
     // Mark as synced so we don't retry repeatedly
     entry.synced = true;
-    await chrome.storage.local.set({ words });
+    await saveWords(words);
   } catch (e) {
     // Network or server error — leave synced as false to retry later
     console.warn("trySync failed:", e);
@@ -148,6 +275,7 @@ chrome.runtime.onStartup.addListener(async () => {
     await chrome.storage.local.get("words");
   chrome.action.setBadgeText({ text: String(words.length) });
   chrome.action.setBadgeBackgroundColor({ color: "#555" });
+  await syncPendingDeletes();
   await pullFromSpreadsheet();
   await syncUnsynced();
 });
@@ -175,7 +303,7 @@ async function syncUnsynced() {
     }
   }
 
-  await chrome.storage.local.set({ words });
+  await saveWords(words);
 }
 
 // Pull the list of words from the remote spreadsheet (via GAS). Merge
@@ -236,8 +364,7 @@ async function pullFromSpreadsheet() {
     }
   }
 
-  const merged = [...localMap.values()];
-  await chrome.storage.local.set({ words: merged });
+  const merged = await saveWords([...localMap.values()]);
 
   // Update badge to show total count after merge
   chrome.action.setBadgeText({ text: String(merged.length) });
@@ -307,15 +434,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         synced: false
       };
 
+      await clearDeletedWordKey(entry.word);
+
       const { words = [] } = await chrome.storage.local.get("words");
       const merged = mergeWords(words, [entry]);
 
       chrome.action.setBadgeText({ text: String(merged.length) });
       chrome.action.setBadgeBackgroundColor({ color: "#555" });
 
-      await chrome.storage.local.set({ words: merged });
-      const saved = merged.find(w => w.word === entry.word);
-      await trySync(saved, merged);
+      const savedWords = await saveWords(merged);
+      const saved = savedWords.find(w => w.word === entry.word);
+      await trySync(saved, savedWords);
 
       sendResponse({ success: true });
     })();
@@ -324,9 +453,24 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   if (request.type === "SYNC_NOW") {
     (async () => {
+      await syncPendingDeletes();
       await pullFromSpreadsheet();
       await syncUnsynced();
       sendResponse({ success: true });
+    })();
+    return true;
+  }
+
+  if (request.type === "DELETE_WORDS") {
+    (async () => {
+      try {
+        const removedCount = await deleteWords(request.entries);
+        const remoteSynced = await syncPendingDeletes();
+        sendResponse({ success: true, removedCount, remoteSynced });
+      } catch (error) {
+        console.error("DELETE_WORDS failed:", error);
+        sendResponse({ success: false, reason: error.message });
+      }
     })();
     return true;
   }
@@ -343,12 +487,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
       w.translated = translated;
       w.synced = false;
-      await chrome.storage.local.set({ words });
-      await trySync(w, words);
+      const savedWords = await saveWords(words);
+      const saved = savedWords.find(x => x.id === w.id || x.word === w.word);
+      await trySync(saved, savedWords);
 
       sendResponse({ success: true });
     })();
     return true;
   }
 });
-
