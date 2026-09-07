@@ -1,0 +1,79 @@
+:root {
+  color-scheme: light;
+  font-family: "Segoe UI Variable", "Yu Gothic UI", system-ui, sans-serif;
+  color: #20221f;
+  background: #f3f2ed;
+  --ink: #20221f;
+  --muted: #6e716b;
+  --line: #d9d9d2;
+  --paper: #fbfaf6;
+  --accent: #345949;
+  --soft: #e7ece7;
+}
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 820px; min-height: 620px; background: #f3f2ed; }
+button, input, select, textarea { font: inherit; }
+button { cursor: pointer; }
+.shell { display: grid; grid-template-columns: 216px 1fr; min-height: 100vh; }
+.sidebar { display: flex; flex-direction: column; padding: 28px 18px 20px; background: #272b28; color: #eef0eb; }
+.brand { display: flex; gap: 10px; align-items: center; padding: 0 9px 34px; font-weight: 650; letter-spacing: .02em; }
+.brand-mark { display: grid; place-items: center; width: 28px; height: 28px; border: 1px solid #8fa095; border-radius: 7px; font-family: Georgia, serif; }
+nav { display: grid; gap: 5px; }
+.nav-item { padding: 11px 13px; border: 0; border-radius: 7px; color: #bfc4bf; background: transparent; text-align: left; }
+.nav-item:hover, .nav-item.active { color: white; background: #373d39; }
+.sidebar-foot { margin-top: auto; padding: 18px 10px 0; border-top: 1px solid #3d423e; color: #aeb4af; font-size: 13px; }
+.sidebar-foot strong { color: white; font-size: 18px; }
+main { width: 100%; max-width: 1120px; margin: 0 auto; padding: 42px 54px 50px; overflow: hidden; }
+.view { display: none; }
+.view.active { display: block; }
+.page-header { display: flex; align-items: end; justify-content: space-between; margin-bottom: 26px; }
+.eyebrow { margin: 0 0 7px; color: var(--accent); font-size: 11px; font-weight: 750; letter-spacing: .17em; }
+h1 { margin: 0; font-size: clamp(28px, 3vw, 38px); font-weight: 620; letter-spacing: -.035em; }
+h2 { line-height: 1.45; }
+.metric { display: grid; text-align: right; color: var(--muted); font-size: 12px; }
+.metric strong { color: var(--ink); font-size: 24px; }
+.study-card { position: relative; display: grid; min-height: 370px; padding: 44px; border: 1px solid var(--line); border-radius: 16px; background: var(--paper); box-shadow: 0 8px 30px rgba(30, 35, 31, .05); }
+.welcome { max-width: 620px; align-self: center; }
+.welcome h2 { margin: 18px 0 10px; font-size: 27px; }
+.welcome > p { max-width: 560px; color: var(--muted); line-height: 1.8; }
+.mode-tag { display: inline-flex; padding: 5px 9px; border-radius: 999px; color: var(--accent); background: var(--soft); font-size: 12px; font-weight: 650; }
+.primary, .secondary, .file-button { min-height: 42px; padding: 0 18px; border-radius: 8px; border: 1px solid transparent; font-weight: 600; }
+.primary { color: white; background: var(--accent); }
+.primary:hover { background: #29483b; }
+.secondary, .file-button { color: var(--ink); background: #fff; border-color: var(--line); }
+.hint { min-height: 20px; margin-bottom: 0; font-size: 13px; }
+.quiz { width: min(720px, 100%); }
+.quiz-top { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; }
+.quiz h2 { margin: 24px 0; font-size: 22px; white-space: pre-wrap; }
+.options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.option { min-height: 54px; padding: 12px 16px; border: 1px solid var(--line); border-radius: 9px; background: white; color: var(--ink); text-align: left; }
+.option:hover:not(:disabled) { border-color: #84988d; background: #f6f8f5; }
+.option.correct { border-color: #51806b; background: #e4eee8; }
+.option.incorrect { border-color: #a96868; background: #f4e7e5; }
+.result { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
+.result p { color: var(--muted); line-height: 1.6; }
+.loading { place-self: center; text-align: center; color: var(--muted); }
+.loading span { display: inline-block; width: 24px; height: 24px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 16px; }
+.stats-grid article { display: grid; gap: 7px; padding: 18px 20px; border: 1px solid var(--line); border-radius: 10px; background: rgba(251,250,246,.65); }
+.stats-grid span { color: var(--muted); font-size: 12px; }
+.stats-grid strong { font-size: 23px; }
+.toolbar { display: flex; gap: 12px; justify-content: space-between; }
+.file-button { display: inline-flex; align-items: center; cursor: pointer; }
+.file-button input { display: none; }
+.search { width: min(360px, 44%); padding: 0 14px; border: 1px solid var(--line); border-radius: 8px; background: white; }
+.notice { color: var(--muted); font-size: 13px; line-height: 1.6; }
+.word-list { margin-top: 22px; border-top: 1px solid var(--line); }
+.word-row { display: grid; grid-template-columns: minmax(150px, .8fr) minmax(200px, 1.2fr) 90px; gap: 20px; align-items: center; padding: 15px 4px; border-bottom: 1px solid var(--line); }
+.word-row strong, .word-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.word-row span, .word-row time { color: var(--muted); font-size: 13px; }
+.settings-card { display: grid; gap: 18px; max-width: 720px; padding: 30px; border: 1px solid var(--line); border-radius: 14px; background: var(--paper); }
+.settings-card label { display: grid; gap: 7px; font-size: 13px; font-weight: 600; }
+.settings-card input, .settings-card select, .settings-card textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 7px; background: white; color: var(--ink); }
+.settings-card textarea { resize: vertical; font-family: Consolas, monospace; font-size: 12px; }
+.form-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.form-status { min-height: 20px; margin: 0; color: var(--accent); font-size: 13px; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, .file-button:focus-within { outline: 3px solid rgba(52,89,73,.25); outline-offset: 2px; }
+@media (max-width: 900px) { main { padding: 34px 30px; } .shell { grid-template-columns: 190px 1fr; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; } }

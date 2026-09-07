@@ -1,1 +1,6 @@
 .env
+desktop/node_modules/
+desktop/dist/
+desktop/out/
+desktop/*.log
+.pnpm-store/
